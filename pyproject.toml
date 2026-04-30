@@ -1,7 +1,31 @@
 [project]
 name = "diffurwkv"
 version = "0.1.0"
-description = "Add your description here"
+description = "DiffuRWKV training"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "torch>=2.5",
+    "pytorch-lightning>=1.9.5",
+    "deepspeed",
+    "wandb",
+    "ninja",
+    "numpy",
+]
+
+[dependency-groups]
+data = [
+    "datasets",       # HF datasets, for loading allenai/tulu-3-sft-mixture
+    "ftfy",           # text fixing, used by third-party/json2binidx_tool
+    "lm-dataformat",  # used by third-party/json2binidx_tool
+    "tokenizers",     # used by third-party/json2binidx_tool (HFTokenizer path)
+    "tqdm",
+]
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu128" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true

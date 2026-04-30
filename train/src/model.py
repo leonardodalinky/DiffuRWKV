@@ -858,6 +858,16 @@ class RWKV(pl.LightningModule):
 
         def training_step(self, batch, batch_idx):
             idx, targets = batch
+            if getattr(self.args, "diffusion_mode", 0) == 1:
+                # Diffusion mode needs full logits + ignore_index, which the chunked
+                # CE kernel doesn't support; apply head explicitly and use F.cross_entropy.
+                hidden = self(idx)
+                logits = self.head(hidden)
+                return F.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    targets.view(-1),
+                    ignore_index=-100,
+                )
             hidden = self(idx)
             return head_l2wrap_cross_entropy(hidden, self.head.weight, targets)
 
@@ -871,6 +881,15 @@ class RWKV(pl.LightningModule):
         def training_step(self, batch, batch_idx):
             idx, targets = batch
             logits = self(idx)
+            if getattr(self.args, "diffusion_mode", 0) == 1:
+                # Diffusion mode: per-token CE with ignore_index for non-b2 / non-masked
+                # positions and tail padding. The L2-wrap CE CUDA kernel doesn't support
+                # ignore_index, so fall back to PyTorch's F.cross_entropy.
+                return F.cross_entropy(
+                    logits.view(-1, logits.size(-1)),
+                    targets.view(-1),
+                    ignore_index=-100,
+                )
 
             ############################################################
             # slow pytorch version (!!! SLOW AND TAKES 40% MORE VRAM !!!)

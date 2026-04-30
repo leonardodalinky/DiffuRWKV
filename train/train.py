@@ -55,6 +55,13 @@ if __name__ == "__main__":
     parser.add_argument("--my_testing", default='x070', type=str)
     parser.add_argument("--my_exit_tokens", default=0, type=int)
 
+    # ---- Diffusion (dLLM-style infilling) training mode ----
+    parser.add_argument("--diffusion_mode", default=0, type=int)              # 0 = standard LM, 1 = triplet diffusion
+    parser.add_argument("--diff_block_size", default=32, type=int)            # tokens per logical block
+    parser.add_argument("--diff_min_mask_ratio", default=0.0, type=float)     # lower bound for per-sample r
+    parser.add_argument("--diff_max_mask_ratio", default=1.0, type=float)     # upper bound for per-sample r
+    parser.add_argument("--diff_pad_id", default=0, type=int)                 # pad token for tail (EOS, NOT mask)
+
     parser = Trainer.add_argparse_args(parser)
     args = parser.parse_args()
 
@@ -200,6 +207,19 @@ if __name__ == "__main__":
     train_data = MyDataset(args)
     args.vocab_size = train_data.vocab_size
 
+    if args.diffusion_mode == 1:
+        # Reuse the last vocab slot as MASK. RWKV world tokenizer has 65525 real tokens
+        # padded to 65536 with 11 dummy slots (ids 65525..65535) that never appear in real
+        # data, so id (vocab_size - 1) is a safe, unused slot. Vocab size stays unchanged,
+        # no ckpt resize needed.
+        args.diff_mask_id = args.vocab_size - 1
+        assert args.ctx_len >= 3 * args.diff_block_size, \
+            f"ctx_len ({args.ctx_len}) too small to fit one diffusion triplet (3 * block_size = {3 * args.diff_block_size})"
+        rank_zero_info(
+            f"########## Diffusion mode ON: block_size={args.diff_block_size}, "
+            f"mask_id={args.diff_mask_id}, vocab_size={args.vocab_size} (reusing last dummy slot) ##########"
+        )
+
     from src.model import RWKV
     model = RWKV(args)
 
@@ -233,6 +253,7 @@ if __name__ == "__main__":
         for k in model.state_dict():
             if k not in load_keys:
                 load_dict[k] = model.state_dict()[k]
+
     model.load_state_dict(load_dict)
 
     trainer = Trainer.from_argparse_args(
